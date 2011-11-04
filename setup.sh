@@ -41,7 +41,7 @@ for DEPANDURL in $DEPS; do
   fi
 
   if grep $DEP ../.gitignore; then
-      echo -n
+      sleep 0
   else
       echo "Adding $DEP to .gitignore"
       echo $DEP >> ../.gitignore
