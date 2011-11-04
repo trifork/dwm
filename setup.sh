@@ -19,9 +19,15 @@ for DEPANDURL in $DEPS; do
       (cd $DEP; git pull)
   fi
 
-  rm -Rf ../$DEP
-  cp -R $DEP/src ../$DEP
-  chmod -R a-w  ../$DEP
+  if [ -d $DEP/src ]; then 
+      rm -Rf ../$DEP
+      cp -R $DEP/src ../$DEP
+      chmod -R a-w  ../$DEP
+  fi
+
+  if [ -f $DEP/setup.sh ]; then
+      (cd ..; bash deps/$DEP/setup.sh)
+  fi
 
 done
 
