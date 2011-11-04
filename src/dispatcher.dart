@@ -154,6 +154,7 @@ class HTTPDispatcher {
 	_specs = [];
 	notFoundHandler = (HTTPInvocation inv) {
 	    inv.response.resultCode = HTTPStatus.NOT_FOUND;
+	    inv.response.contentLength = 0;
 	    inv.response.writeDone();
 	};
     }
@@ -181,4 +182,60 @@ class HTTPDispatcher {
     }
 }
 
+// generate a http handler that 
+http_handler handlerForDir(String rootDir) => (HTTPInvocation inv) {
+    if (rootDir.endsWith("/")) {
+	rootDir = rootDir.substring(0, rootDir.length-1);
+    }
+    String file = "${rootDir}${inv.request.path}";
+    _fileHandler(inv.request, inv.response, file);
+};
 
+
+// Serve the content of a file.
+void _fileHandler(HTTPRequest request, HTTPResponse response, 
+		  [String fileName = null]) {
+    final int BUFFER_SIZE = 4096;
+    if (fileName == null) {
+	fileName = request.path.substring(1);
+    }
+    File file = new File(fileName);
+    if (file.existsSync()) {
+	file.openSync();
+      int totalRead = 0;
+      List<int> buffer = new List<int>(BUFFER_SIZE);
+      
+      String mimeType = "text/html; charset=UTF-8";
+      int lastDot = fileName.lastIndexOf(".", fileName.length);
+      if (lastDot != -1) {
+	  String extension = fileName.substring(lastDot);
+	  if (extension == ".css") { mimeType = "text/css"; }
+	  if (extension == ".js") { mimeType = "application/javascript"; }
+	  if (extension == ".ico") { mimeType = "image/vnd.microsoft.icon"; }
+	  if (extension == ".png") { mimeType = "image/png"; }
+      }
+      response.setHeader("Content-Type", mimeType);
+      response.contentLength = file.lengthSync();
+      
+      void writeFileData() {
+	  while (totalRead < file.lengthSync()) {
+	      var read = file.readListSync(buffer, 0, BUFFER_SIZE);
+	      totalRead += read;
+	      
+	      // Write this buffer and get a callback when it makes sense
+	      // to write more.
+	      bool allWritten = response.writeList(buffer, 0, read, writeFileData);
+	      if (!allWritten) break;
+	  }
+	  
+	  if (totalRead == file.lengthSync()) {
+	      response.writeDone();
+	  }
+      }
+      
+      writeFileData();
+    } else {
+	print("File not found: $fileName");
+	_notFoundHandler(request, response);
+    }
+}
