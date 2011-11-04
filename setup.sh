@@ -14,6 +14,8 @@ for DEPANDURL in $DEPS; do
   DEP=`echo $DEPANDURL | awk '-F|' '{print $1}'`
   URL=`echo $DEPANDURL | awk '-F|' '{print $2}'`
 
+  echo "Updating $DEP from $URL..."
+
   if [ ! -d $DEP ]; then
       git clone $URL $DEP
   else
@@ -34,5 +36,15 @@ for DEPANDURL in $DEPS; do
       (cd ..; /bin/sh deps/$DEP/setup.sh)
   fi
 
+  if [ ! -f ../.gitignore ]; then
+      touch ../.gitignore
+  fi
+
+  if grep $DEP ../.gitignore; then
+      echo -n
+  else
+      echo "Adding $DEP to .gitignore"
+      echo $DEP >> ../.gitignore
+  fi
 done
 
