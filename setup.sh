@@ -1,6 +1,7 @@
-#/bin/bash
+#/bin/sh
 
-DEPS='dlib|git@github.com:trifork/dlib.git'
+DEPS="dlib|git@github.com:trifork/dlib.git \
+     dunit|git@github.com:trifork/dunit.git"
 
 if [ ! -d deps ]; then
     mkdir deps
@@ -19,14 +20,18 @@ for DEPANDURL in $DEPS; do
       (cd $DEP; git pull)
   fi
 
-  if [ -d $DEP/src ]; then 
+  if [ -d ../$DEP ]; then
+      chmod -R +w  ../$DEP
       rm -Rf ../$DEP
+  fi
+
+  if [ -d $DEP/src ]; then 
       cp -R $DEP/src ../$DEP
       chmod -R a-w  ../$DEP
   fi
 
   if [ -f $DEP/setup.sh ]; then
-      (cd ..; bash deps/$DEP/setup.sh)
+      (cd ..; /bin/sh deps/$DEP/setup.sh)
   fi
 
 done
