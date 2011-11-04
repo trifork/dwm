@@ -17,15 +17,16 @@
 #library('dart-webmachine-dispatcher');
 #import('../dlib/utils.dart');
 #import('../dlib/http.dart');
+#import('../dlib/dart_json.dart');
 
-class MatchSpec {
+class _PathComponentMatcher {
 
     var _matchers, _lastmatcher;
     var _value;
 
     get value() => _value;
 
-    MatchSpec(String spec, this._value) { 
+    _PathComponentMatcher(String spec, this._value) { 
 
 	if (spec.length < 1 || spec[0] != '/') {
 	    throw new IllegalArgumentException(spec);
@@ -81,8 +82,15 @@ class MatchSpec {
 	    rest_pos += (1 + tok.length);
 	}
 	
+	print("fullpath: '${full_path}' pos:$pos rest_pos:$rest_pos, tokens: ${JSON.stringify(tokens)}");
+
+	if (pos >= tokens.length) {
+	    return null;
+	}
+
 	if (_lastmatcher != null) {
 	    int toklen = tokens.length;
+
 	    String rest = full_path.substring(rest_pos);
 
 	    if (_lastmatcher(rest, parms) == false) {
@@ -94,12 +102,15 @@ class MatchSpec {
 	return parms;
     }
 
-    static Map _match_path(String path, Collection<MatchSpec> specs)
+    static Map _match_path(String path, Collection<_PathComponentMatcher> specs)
     {
 	assert (path.length>0 && path[0] == '/');
 	var tokens = path.substring(1).split('/');
+
+	tokens = _eliminateDotDot(tokens);
+
 	for(var spec in specs) {
-	    var bindings = spec._match(tokens, path);
+	    var bindings = spec._match(tokens, "/"+ Strings.join(tokens, '/'));
 	    if (bindings != null) {
 		return {'value':spec.value, 'bindings':bindings};
 	    }
@@ -107,6 +118,30 @@ class MatchSpec {
 
 	return null;
     }
+
+    static List<String> _eliminateDotDot(List<String> path)
+    {
+	for (int i = 0; i < path.length; i++) {
+
+	    switch(path[i]) {
+	    case '.': 
+		path.removeRange(i, 1);
+		i -= 1;
+		break;
+
+	    case '..':
+		if (i == 0) {
+		    return const[];
+		}
+		
+		path.removeRange(i-1, 2);
+		i -= 2;
+		break;
+	    }
+	}
+
+	return path;
+    } 
 }
 
 interface HTTPInvocation factory HTTPInvocationImpl {
@@ -160,16 +195,16 @@ class HTTPDispatcher {
     }
 
     add(String spec, http_handler handler) {
-	_specs.add (new MatchSpec(spec, handler));
+	_specs.add (new _PathComponentMatcher(spec, handler));
     }     
     
     dispatch(HTTPInvocation inv) {
 	HTTPRequest req = inv.request;
 	String path = req.path;
-	var found = MatchSpec._match_path( path, _specs );
+	var found = _PathComponentMatcher._match_path( path, _specs );
 	
 	if (found == null) {
-	    notFoundHandler(req,resp);
+	    notFoundHandler(inv);
 	} else {
 	    http_handler handler = found['value'];
 	    Map<String,String> bindings = found['bindings'];
@@ -236,6 +271,8 @@ void _fileHandler(HTTPRequest request, HTTPResponse response,
       writeFileData();
     } else {
 	print("File not found: $fileName");
-	_notFoundHandler(request, response);
+	response.resultCode = HTTPStatus.NOT_FOUND;
+	response.writeDone();
+	//	_notFoundHandler(request, response);
     }
 }

@@ -9,6 +9,8 @@ class DummyReq {
 
 class DummyResp {
     var resultCode;
+    var contentLength;
+    writeDone() {}
 }
 
 main() {
@@ -21,5 +23,6 @@ main() {
     disp.add(@'/*', handlerForDir("/tmp"));
 
     disp.dispatch2( new DummyReq("/person/4"), new DummyResp());
+    disp.dispatch2( new DummyReq("/x/../person/4/.."), new DummyResp());
 
 }
