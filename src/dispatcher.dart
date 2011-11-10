@@ -149,6 +149,7 @@ interface HTTPInvocation factory HTTPInvocationImpl {
 
     HTTPRequest get request();
     HTTPResponse get response();
+    Map<String,String> get pathBindings();
 }
 
 class HTTPInvocationImpl implements HTTPInvocation {
@@ -157,6 +158,8 @@ class HTTPInvocationImpl implements HTTPInvocation {
 
     HTTPRequest get request() => _request;
     HTTPResponse get response() => _response;
+
+    Map<String,String> get pathBindings() => new Map();
 
     HTTPInvocationImpl(HTTPRequest this._request,
 		       HTTPResponse this._response);
