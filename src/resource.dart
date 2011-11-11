@@ -24,44 +24,26 @@ class WMResource {
     bool get available() => true;
 
     /** known methods */
-    Collection<String> get knownMethods() => DEFAULT_KNOWN_METHODS;
-
-    static Set<String> _default_known_methods;
-    static Set<String> get DEFAULT_KNOWN_METHODS() {
-	if (_default_known_methods == null) {
-	    _default_known_methods =
-		new Set.from(const ['GET', 'HEAD', 'POST', 'PUT',
-				'DELETE', 'TRACE', 'CONNECT', 'OPTIONS']);
-	}
-	return _default_known_methods;
-    }
+    Collection<String> get knownMethods() =>
+        const ['GET', 'HEAD', 'POST', 'PUT',
+               'DELETE', 'TRACE', 'CONNECT', 'OPTIONS'];
 
     /** Return the maximum allowed length of a URI (or -1 if no such limit applies) */
     int get maxURILength() => -1;
 
     /** allowed methods */
-    Set<String> get allowedMethods() => DEFAULT_ALLOWED_METHODS;
-
-    static Set<String> _default_allowed_methods;
-    static get DEFAULT_ALLOWED_METHODS() {
-	if (_default_allowed_methods == null) {
-	    _default_allowed_methods = new Set.from(const ['GET', 'HEAD']);
-	}
-	return _default_allowed_methods;
-    }
+    Collection<String> get allowedMethods() => const ['GET', 'HEAD'];
 
     bool get isMalformed() => false;
 
     /** call one of the three methods on the WMAuthenticate interface, or
      *  none if no authentication is needed. */
-    void authenticate(WMAuthenticate auth) => null;
+    void doAuthenticate(WMAuthenticate auth) {}
 
     /** return true if this invocation is forbidden */
     bool get forbidden() => false;
 
-    Map get providedContentTypes() => {'text/html': this.toHTML};
-
-    Map get acceptedContentTypes() => const {};
+    Map get providedContentTypes() => {'text/html': ()=>this.toHTML() };
 
     Map get providedCharsets() => {
         'UTF8'       : (string) => UTF8Encoder.encodeString(string),
@@ -74,21 +56,34 @@ class WMResource {
 
     List get variances() => const [];
 
-    bool get isConflict() => false;
+    /** does this resource exist */
+    bool get exists() => true;
 
-    bool get multipleChoises() => false;
+    /** operations on non-existing resource */
 
+    Map get acceptedContentTypes() => const {};
+
+    /** did this resource exist previously? */
     bool get previouslyExisted() => false;
 
     String get movedPermanently() => false;
     String get movedTemporarily() => false;
 
+    bool get isConflict() => false;
+
+    bool get allowMissingPOST() => false;
+
+    bool get multipleChoises() => false;
+
     bool get postIsCreate() => false;
-    String createPath() => null;
+    String doCreatePath() => null;
 
-    bool get exists() => true;
+    /* If post_is_create returns false, then this will be called to
+     * process any POST requests. If it succeeds, it should return
+     * true. */
+    bool doProcessPOST() { return false; }
 
-    String baseURI() => null;
+    String get baseURI() => null;
 
     String get etag() => null;
     Date get expires() => null;
@@ -96,8 +91,8 @@ class WMResource {
 
     abstract String toHTML();
 
-    void finishRequest() {}
-    void stop() {}
+    void doFinishRequest() {}
+    void doStop() {}
 }
 
 

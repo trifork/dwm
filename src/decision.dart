@@ -19,9 +19,12 @@ class WMRequest implements WMAuthenticate {
     WMResource res;
     var _body;
 
-    String _content_type;
+    String _chosen_content_type;
     String _chosen_charset;
     String _chosen_encoding;
+    String _chosen_language;
+
+    bool redirect = false;
 
     static final DONE = const Object();
 
@@ -71,7 +74,7 @@ class WMRequest implements WMAuthenticate {
 
             if (code == 304) {
                 _replyHeaders.remove('Content-Type');
-                String etag = res.generateETag();
+                String etag = res.etag;
                 if (etag != null) {
                     setHeader('ETag', '"$etag"');
                 }
@@ -81,7 +84,7 @@ class WMRequest implements WMAuthenticate {
                 }
             }
 
-            res.finishRequest();
+            res.doFinishRequest();
 
             for(var key in _replyHeaders.getKeys()) {
                 _response.setHeader(key, _replyHeaders[key]);
@@ -99,8 +102,9 @@ class WMRequest implements WMAuthenticate {
 
         _response.statusCode = code;
 
+        var chunk = _body;
+
         {
-            var chunk = _body;
             if (chunk is String) {
                 if (_chosen_charset != null) {
                     chunk = res.providedCharsets[_chosen_charset](chunk);
@@ -116,7 +120,7 @@ class WMRequest implements WMAuthenticate {
                 _response.contentLength = chunk.length;
                 _response.writeList(chunk, 0, chunk.length);
                 _response.writeDone();
-                res.stop();
+                res.doStop();
                 return;
             }
         }
@@ -161,13 +165,12 @@ class WMRequest implements WMAuthenticate {
     }
 
 
-
     respondError(String reason, [int code=500, String message=null])
     {
         String errorHTML = WM.errorHandler(code, this, reason);
         respond(code, message:message);
         setHeader('Content-Type', 'text/html;charset=UTF8');
-        this.response = errorHTML;
+        this.responseBody = errorHTML;
         return respond(code, message:message);
     }
 
@@ -179,7 +182,9 @@ class WMRequest implements WMAuthenticate {
 
     void execute()
     {
-        decision();
+        if (decision() != DONE) {
+            print("decision did not end");
+        }
     }
 
     state(str) {
@@ -191,11 +196,15 @@ class WMRequest implements WMAuthenticate {
         var tmp;
 
         state('B13');
-        if (! res.available )
-            return respond(503);
+        switch (res.available ) {
+        case DONE: return DONE;
+        case false: return respond(503);
+        }
 
         state('B12');
-        if (! res.knownMethods.contains(method) )
+        tmp = res.knownMethods;
+        if (tmp == DONE) return DONE;
+        if (! contains(res.knownMethods, method) )
             return respond(501);
 
         state('B11');
@@ -209,17 +218,23 @@ class WMRequest implements WMAuthenticate {
         }
 
         state('B9');
-        if ( res.isMalformed ) {
+        switch(res.isMalformed) {
+        case DONE:
+            return DONE;
+        case true:
             return respond(400);
         }
 
         state('B8');
-        res.authenticate(this);
+        res.doAuthenticate(this);
         if (_did_respond)
             return DONE;
 
         state('B7');
-        if (res.forbidden) {
+        switch (res.forbidden) {
+        case DONE:
+            return DONE;
+        case true:
             return respond(403);
         }
 
@@ -232,17 +247,19 @@ class WMRequest implements WMAuthenticate {
             Map<String,Function> provided = res.providedContentTypes;
             String acceptHeader = requestHeaders['Accept'];
             if (acceptHeader == null) {
-                _content_type = toList(provided.getKeys())[0];
+                if (! provided.isEmpty()) {
+                    _chosen_content_type = toList(provided.getKeys())[0];
+                }
             } else {
                 state('C4');
-                String mediaType = _choose_media_type(provided, acceptHeader);
+                String mediaType = _do_choose(provided, acceptHeader);
                 switch(true) {
                 case mediaType==null:
                     return respond(406);
                 case mediaType==DONE:
                     return DONE;
                 case mediaType is String:
-                    _content_type = mediaType;
+                    _chosen_content_type = mediaType;
                 default:
                     return respondError("wrong media type (1)");
                 }
@@ -310,10 +327,14 @@ class WMRequest implements WMAuthenticate {
             }
         }
 
-        if (_chosen_charset == null) {
-            setHeader('Content-Type', _content_type);
+        if (_chosen_content_type == null) {
+            // now what?
         } else {
-            setHeader('Content-Type', "${_content_type}; charset=${_chosen_charset}");
+            if (_chosen_charset == null) {
+                setHeader('Content-Type', _chosen_content_type);
+            } else {
+                setHeader('Content-Type', "${_chosen_content_type}; charset=${_chosen_charset}");
+            }
         }
 
         // process Accept-Encoding [E5, E6]
@@ -363,38 +384,111 @@ class WMRequest implements WMAuthenticate {
             return respondError("bad exists value (1)");
         }
 
+        if (tmp == DONE)
+            return DONE;
+
+        // ?
+
     }
 
     resource_exists() {
         state('G8');
 
+        if (method == 'DELETE') {
 
+            state('M20');
+            if (res.delete() == DONE) {
+                return DONE;
+            }
+
+            switch (res.deleteCompleted()) {
+            case DONE: return DONE;
+            case false:
+                return respond(202); // delete accepted
+            case true:
+                break;
+            }
+
+            state('O20');
+            if (_body == null) {
+                return respond(204); // no content
+            }
+
+            return __o18();
+
+        } else if (method == 'POST') {
+            return __n11();
+
+        } else if (method == 'PUT') {
+
+            state('O14');
+            switch (res.conflict) {
+            case true:
+                return respond(409);
+            case DONE:
+                return DONE;
+            }
+
+            if(accept_helper() == DONE)
+                return DONE;
+
+            return __p11();
+
+        } else {
+            return __o18();
+        }
+
+    }
+
+    accept_helper() {
+        String ct = requestHeaders['Content-Type'];
+        if (ct == null) {
+            ct = 'application/octet';
+        } else {
+            ct = ct.split(';')[0].strip();
+        }
+
+        var do_accept = res.acceptedContentTypes[ct];
+        if (do_accept == null) {
+            do_accept = res.acceptedContentTypes['*'];
+            if (do_accept == null)
+                return respond(415);
+        }
+
+        return do_accept();
+    }
+
+    __o18() {
         state('O18');
 
-        String etag = res.etag;
-        if (etag != null) {
-            setHeader('ETag', '"$etag"');
-        }
-        Date lastMod = res.lastModified;
-        if (lastMod != null) {
-            setHeader('Last-Modified', _date_to_string(lastMod));
-        }
-        Date expires = res.expires;
-        if (expires != null) {
-            setHeader('Expires', _date_to_string(expires));
+        if (method == 'GET' || method == 'HEAD') {
+            String etag = res.etag;
+            if (etag != null) {
+                setHeader('ETag', '"$etag"');
+            }
+            Date lastMod = res.lastModified;
+            if (lastMod != null) {
+                setHeader('Last-Modified', _date_to_string(lastMod));
+            }
+            Date expires = res.expires;
+            if (expires != null) {
+                setHeader('Expires', _date_to_string(expires));
+            }
+
+            var bodyFun = res.providedContentTypes[_chosen_content_type];
+            if (bodyFun != null) {
+                var body = bodyFun();
+                if (_did_respond) {
+                    return DONE;
+                }
+
+                if (body != null) {
+                    this.responseBody = body;
+                }
+            }
         }
 
-        var bodyFun = res.providedContentTypes[_content_type];
-        var body = bodyFun();
-        if (_did_respond) {
-            return DONE;
-        }
-
-        if (body != null) {
-            this.responseBody = body;
-        }
-
-        if (res.multipleChoises()) {
+        if (res.multipleChoises) {
             return respond(300);
         } else {
             return respond(200);
@@ -419,7 +513,12 @@ class WMRequest implements WMAuthenticate {
 
             state('P3');
 
-            if (_test_conflict() == DONE)
+            switch(res.conflict) {
+            case DONE: return DONE;
+            case true: respond(409);
+            }
+
+            if (accept_helper() == DONE)
                 return DONE;
 
         } else {
@@ -442,7 +541,7 @@ class WMRequest implements WMAuthenticate {
                 }
 
                 state('N5');
-                if (! res.allowMissingPOST()) {
+                if (! res.allowMissingPOST) {
                     return respond(401);
                 }
 
@@ -454,42 +553,63 @@ class WMRequest implements WMAuthenticate {
                 }
 
                 state('M7');
-                if (! res.allowMissingPOST()) {
+                if (! res.allowMissingPOST) {
                     return respond(404);
                 }
 
             }
 
-            state('N11');
+        }
 
-            if (res.postIsCreate()) {
-                String new_path = res.createPath();
-                if (new_path == DONE) { return DONE; }
-                if (new_path == null) { return respondError("postIsCreate w/o createPath"); }
+        return __n11();
+    }
 
-                String base_uri = res.baseURI();
-                if (base_uri == null) {
-                    base_uri = baseURI();
-                } else {
-                    if (base_uri.endsWith('/')) {
-                        base_uri = base_uri.substring(0, base_uri.length-1);
-                    }
-                }
-                String full_path = path + '/' + new_path;
-                setHeader('Location', base_uri + full_path);
-                _path = full_path;
+    __n11() {
 
+        state('N11');
 
+        if (res.postIsCreate()) {
+            String new_path = res.doCreatePath();
+            if (new_path == DONE) { return DONE; }
+            if (new_path == null) { return respondError("postIsCreate w/o createPath"); }
+
+            String base_uri = res.baseURI;
+            if (base_uri == null) {
+                base_uri = baseURI;
             } else {
-                var tmp = res.processPOST();
-                if (tmp == DONE) {
-                    return DONE;
-                } else if (tmp =! true) {
-                    return respondError("bad reply from processPOST");
+                if (base_uri.endsWith('/')) {
+                    base_uri = base_uri.substring(0, base_uri.length-1);
                 }
+            }
+            String full_path = path + '/' + new_path;
+            setHeader('Location', base_uri + full_path);
+            _path = full_path;
+
+            if (accept_helper() == DONE) {
+                return DONE;
+            }
+
+        } else {
+            var tmp = res.doProcessPOST();
+            if (tmp == DONE) {
+                return DONE;
+            } else if (tmp =! true) {
+                return respondError("bad reply from processPOST");
             }
         }
 
+        if (redirect) {
+            if (_replyHeaders['Location'] == null) {
+                return respond(500, message:'Response had redirect=true but no Location');
+            } else {
+                return respond(303); // see other
+            }
+        }
+
+        return __p11();
+    }
+
+    __p11() {
         state('P11');
 
         if (_replyHeaders['Location'] != null) {
@@ -498,17 +618,11 @@ class WMRequest implements WMAuthenticate {
 
         state('O20');
         if (!_has_response_body()) {
-            return response(204); // no content
+            return respond(204); // no content
         }
 
-        state('O18');
-        if (res.multipleChoises()) {
-            return respond(300);
-        } else {
-            return respond(200);
-        }
+        return __o18();
     }
-
 
 
     _test_conflict() {
@@ -531,7 +645,7 @@ class WMRequest implements WMAuthenticate {
             return false;
 
         default:
-            response.setHeader('Location', url);
+            setHeader('Location', url);
             return respond(301);
         }
     }
@@ -545,7 +659,7 @@ class WMRequest implements WMAuthenticate {
             return false;
 
         default:
-            response.setHeader('Location', url);
+            setHeader('Location', url);
             return respond(307);
         }
     }
@@ -637,6 +751,11 @@ _do_choose(Map<String,Function> provided, String acceptHeader,
     }
 }
 
+_map(list,f) {
+    var res=[];
+    list.forEach((e)=> res.add( f(e) ));
+    return res;
+}
 
 class _QVal {
     String type;
@@ -654,7 +773,9 @@ class _QVal {
 
         var vals = header.split(',');
         vals.forEach((String val) {
-                List elms = map(val.split(';'), (s)=>s.trim());
+                //                print("val:$val");
+                List elms = _map(val.split(';'), (e)=>e.trim());
+                //                print("val:$elms");
                 Map parms = null;
                 String type=elms[0];
                 double prio = 1.0;
@@ -683,5 +804,5 @@ class _QVal {
 
 
 //main() {
-//    print( new Date.now().changeTimeZone(const TimeZone.utc()) .toString() );
+//    new WMRequest(null, null, null, null, null);
 //}

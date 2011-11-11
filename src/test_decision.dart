@@ -29,11 +29,12 @@ class DummyResp {
     writeDone() {
         print("did receive\n----${JSON.stringify(headers)}\n----\n$reply\n----");
     }
+
     setHeader(k,v) { headers[k] = v; }
 }
 
 class DummyRes extends WMResource {
-    toHTML() => '<html><body>HELLO!</body></html>';
+    String toHTML() => '<html><body>HELLO!</body></html>';
 }
 
 main() {
